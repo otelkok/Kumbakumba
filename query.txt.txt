@@ -1,0 +1,11 @@
+Get-Process | ForEach-Object {
+    $proc = $_
+    $modules = $proc.Modules | Where-Object { $_.FileName -like "*Kodak*" -or $_.FileName -like "*Smart Touch*" }  # Filtreyi DLL path/adıyla güncelle
+    if ($modules) {
+        [PSCustomObject]@{
+            ProcessName = $proc.Name
+            ProcessID = $proc.Id
+            DLLs = $modules.FileName -join ', '
+        }
+    }
+} | Format-Table -AutoSize
