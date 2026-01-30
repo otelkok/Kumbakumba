@@ -1,0 +1,27 @@
+$folderPath = "C:\Yol\Klasor"  # Klasör yolunu buraya yaz
+Get-ChildItem -Path $folderPath -Recurse -Filter *.exe | ForEach-Object {
+    $exePath = $_.FullName
+    try {
+        $bytes = [System.IO.File]::ReadAllBytes($exePath)
+        $manifest = $null
+        # PE header'ı parse et (manifest için RT_MANIFEST resource'u ara)
+        # Basit bir regex ile manifest XML'i çıkar (tam çözüm için PE parsing library kullan)
+        $content = [System.Text.Encoding]::ASCII.GetString($bytes)
+        if ($content -match '<requestedExecutionLevel level="([^"]+)"') {
+            $level = $matches[1]
+            [PSCustomObject]@{
+                Exe = $_.Name
+                Path = $exePath
+                RequiresAdmin = ($level -eq 'requireAdministrator' -or $level -eq 'highestAvailable')
+            }
+        } else {
+            [PSCustomObject]@{
+                Exe = $_.Name
+                Path = $exePath
+                RequiresAdmin = 'Manifest Yok veya Belirsiz'
+            }
+        }
+    } catch {
+        Write-Warning "Hata: $exePath"
+    }
+} | Format-Table -AutoSize
