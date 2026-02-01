@@ -631,28 +631,54 @@ function Test-RDPCredentials {
 function Test-GPPPasswords {
     Write-Host "`n[*] GPP Passwords Kontrol Ediliyor..." -ForegroundColor Cyan
 
-    $sysvolPath = "\\$env:USERDOMAIN\SYSVOL"
+    # Domain'e bagli mi kontrol et
+    if ($env:USERDOMAIN -eq $env:COMPUTERNAME) {
+        Write-Host "  [SKIP] Domain'e bagli degil, GPP kontrolu atlanıyor." -ForegroundColor Gray
+        return
+    }
 
-    if (Test-Path $sysvolPath -ErrorAction SilentlyContinue) {
-        $gppFiles = @(
-            "Groups.xml",
-            "Services.xml",
-            "Scheduledtasks.xml",
-            "DataSources.xml",
-            "Printers.xml",
-            "Drives.xml"
-        )
+    # SYSVOL yolunu olustur
+    $domainDNS = $env:USERDNSDOMAIN
+    if (-not $domainDNS) {
+        Write-Host "  [SKIP] Domain DNS bulunamadi." -ForegroundColor Gray
+        return
+    }
 
-        $xmlFiles = Get-ChildItem $sysvolPath -Recurse -Include $gppFiles -ErrorAction SilentlyContinue
+    $sysvolPath = "\\$domainDNS\SYSVOL\$domainDNS\Policies"
 
-        foreach ($file in $xmlFiles) {
-            $content = Get-Content $file.FullName -ErrorAction SilentlyContinue
-            if ($content -match "cpassword=") {
-                Write-Finding -Category "GPP Password" `
-                              -Finding $file.FullName `
-                              -Risk "KRITIK" `
-                              -Details "cpassword alani mevcut - AES key bilinen, kolayca cozulebilir"
-            }
+    # Hizli baglanti testi (2 saniye timeout)
+    Write-Host "  SYSVOL erisim testi: $sysvolPath" -ForegroundColor Gray
+    $testJob = Start-Job -ScriptBlock { param($p) Test-Path $p } -ArgumentList $sysvolPath
+    $completed = Wait-Job $testJob -Timeout 3
+
+    if (-not $completed) {
+        Stop-Job $testJob
+        Remove-Job $testJob -Force
+        Write-Host "  [TIMEOUT] SYSVOL erisilemedi (3s timeout)." -ForegroundColor Yellow
+        return
+    }
+
+    $accessible = Receive-Job $testJob
+    Remove-Job $testJob -Force
+
+    if (-not $accessible) {
+        Write-Host "  [SKIP] SYSVOL erisilemedi." -ForegroundColor Gray
+        return
+    }
+
+    # Sadece Policies klasorunde ara (daha hizli)
+    $gppFiles = @("Groups.xml", "Services.xml", "Scheduledtasks.xml", "DataSources.xml", "Printers.xml", "Drives.xml")
+
+    # Depth 4 ile sinirla (cok derin aramadan kacin)
+    $xmlFiles = Get-ChildItem $sysvolPath -Recurse -Depth 4 -Include $gppFiles -ErrorAction SilentlyContinue | Select-Object -First 50
+
+    foreach ($file in $xmlFiles) {
+        $content = Get-Content $file.FullName -ErrorAction SilentlyContinue -First 100
+        if ($content -match "cpassword=") {
+            Write-Finding -Category "GPP Password" `
+                          -Finding $file.FullName `
+                          -Risk "KRITIK" `
+                          -Details "cpassword alani mevcut - AES key bilinen, kolayca cozulebilir"
         }
     }
 }
