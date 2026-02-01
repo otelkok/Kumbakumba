@@ -633,54 +633,20 @@ function Test-GPPPasswords {
 
     # Domain'e bagli mi kontrol et
     if ($env:USERDOMAIN -eq $env:COMPUTERNAME) {
-        Write-Host "  [SKIP] Domain'e bagli degil, GPP kontrolu atlanıyor." -ForegroundColor Gray
+        Write-Host "  [SKIP] Domain'e bagli degil." -ForegroundColor Gray
         return
     }
 
-    # SYSVOL yolunu olustur
-    $domainDNS = $env:USERDNSDOMAIN
-    if (-not $domainDNS) {
-        Write-Host "  [SKIP] Domain DNS bulunamadi." -ForegroundColor Gray
-        return
-    }
+    # SYSVOL network taramasi cok yavas olabilir, atliyoruz
+    # Domain ortaminda manuel olarak calistirilabilir:
+    # findstr /S /I cpassword \\domain\sysvol\*.xml
+    Write-Host "  [SKIP] SYSVOL taramasi atlanıyor (network timeout riski)." -ForegroundColor Gray
+    Write-Host "  [INFO] Manuel kontrol: findstr /S /I cpassword \\$env:USERDNSDOMAIN\sysvol\*.xml" -ForegroundColor Gray
 
-    $sysvolPath = "\\$domainDNS\SYSVOL\$domainDNS\Policies"
-
-    # Hizli baglanti testi (2 saniye timeout)
-    Write-Host "  SYSVOL erisim testi: $sysvolPath" -ForegroundColor Gray
-    $testJob = Start-Job -ScriptBlock { param($p) Test-Path $p } -ArgumentList $sysvolPath
-    $completed = Wait-Job $testJob -Timeout 3
-
-    if (-not $completed) {
-        Stop-Job $testJob
-        Remove-Job $testJob -Force
-        Write-Host "  [TIMEOUT] SYSVOL erisilemedi (3s timeout)." -ForegroundColor Yellow
-        return
-    }
-
-    $accessible = Receive-Job $testJob
-    Remove-Job $testJob -Force
-
-    if (-not $accessible) {
-        Write-Host "  [SKIP] SYSVOL erisilemedi." -ForegroundColor Gray
-        return
-    }
-
-    # Sadece Policies klasorunde ara (daha hizli)
-    $gppFiles = @("Groups.xml", "Services.xml", "Scheduledtasks.xml", "DataSources.xml", "Printers.xml", "Drives.xml")
-
-    # Depth 4 ile sinirla (cok derin aramadan kacin)
-    $xmlFiles = Get-ChildItem $sysvolPath -Recurse -Depth 4 -Include $gppFiles -ErrorAction SilentlyContinue | Select-Object -First 50
-
-    foreach ($file in $xmlFiles) {
-        $content = Get-Content $file.FullName -ErrorAction SilentlyContinue -First 100
-        if ($content -match "cpassword=") {
-            Write-Finding -Category "GPP Password" `
-                          -Finding $file.FullName `
-                          -Risk "KRITIK" `
-                          -Details "cpassword alani mevcut - AES key bilinen, kolayca cozulebilir"
-        }
-    }
+    Write-Finding -Category "GPP Password Check" `
+                  -Finding "Manuel Kontrol Gerekli" `
+                  -Risk "ORTA" `
+                  -Details "Domain ortaminda SYSVOL'da cpassword aramasi yapilmali"
 }
 
 function Test-McAfeeSiteList {
